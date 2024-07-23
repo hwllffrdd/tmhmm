@@ -1,0 +1,1 @@
+The script seems to run ok in wsl terminal with Docker with wsl2 (example command: python3 tmhmm.py --fasta /mnt/c/Projects/tmhmm/human.fasta --output /mnt/c/Projects/tmhmm/deeptmhmm_results2), but at the end, it does not generate any output files, or does not save them.
