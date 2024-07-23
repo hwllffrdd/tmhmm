@@ -6,7 +6,10 @@ import platform
 import shutil
 import logging
 import stat
+import glob
+import time
 from pathlib import Path, PureWindowsPath
+import subprocess
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -47,6 +50,7 @@ def convert_path_to_wsl(path):
         # If it's not a valid Windows path, assume it's already a valid path
         return path
 
+
 def run_deeptmhmm(fasta_file, output_dir):
     print(f"Loading DeepTMHMM...")
     deeptmhmm = biolib.load('DTU/DeepTMHMM:1.0.24')
@@ -56,19 +60,11 @@ def run_deeptmhmm(fasta_file, output_dir):
 
     print(f"Original fasta file path: {fasta_file}")
     print(f"Converted WSL fasta file path: {wsl_fasta_file}")
+    print(f"Desired output directory: {wsl_output_dir}")
 
     print(f"Running DeepTMHMM on file: {wsl_fasta_file}")
 
-    print(f"Checking if file exists: {os.path.exists(wsl_fasta_file)}")
-    print(f"File contents:")
     try:
-        with open(wsl_fasta_file, 'r') as f:
-            print(f.read()[:100])  # Print first 100 characters
-    except Exception as e:
-        print(f"Error reading file: {e}")
-
-    try:
-        # Use the converted paths directly in the command
         job = deeptmhmm.cli(args=['--fasta', wsl_fasta_file], machine='local')
     except Exception as e:
         print(f"Failed to start DeepTMHMM: {e}")
@@ -82,22 +78,67 @@ def run_deeptmhmm(fasta_file, output_dir):
     print("Stderr:")
     print(job.get_stderr().decode())
 
-    default_output_dir = 'deeptmhmm_results'
+    # Add a delay to ensure all files are written
+    time.sleep(5)
 
-    if os.path.exists(default_output_dir):
-        if not os.path.exists(wsl_output_dir):
-            os.makedirs(wsl_output_dir)
-        for item in os.listdir(default_output_dir):
-            s = os.path.join(default_output_dir, item)
-            d = os.path.join(wsl_output_dir, item)
-            if os.path.isdir(s):
-                shutil.copytree(s, d, dirs_exist_ok=True)
-            else:
-                shutil.copy2(s, d)
-        print(f"Files saved in '{wsl_output_dir}' directory")
-        shutil.rmtree(default_output_dir)
+    # Create the output directory if it doesn't exist
+    os.makedirs(wsl_output_dir, exist_ok=True)
+
+    # Biolib output directory
+    biolib_output = os.path.expanduser('~/.biolib/output')
+
+    if not os.path.exists(biolib_output):
+        print(f"Biolib output directory does not exist: {biolib_output}")
+        return
+
+    files_moved = False
+
+    # List of file extensions to look for
+    extensions = ['.gff3', '.txt', '.json']
+
+    for ext in extensions:
+        print(f"Searching for *{ext} files in {biolib_output}...")
+        for file in glob.glob(f"{biolib_output}/**/*{ext}", recursive=True):
+            if 'deeptmhmm' in file.lower() or 'tmhmm' in file.lower():
+                print(f"Found result file: {file}")
+                dest_file = os.path.join(wsl_output_dir, os.path.basename(file))
+                if os.path.abspath(file) != os.path.abspath(dest_file):
+                    shutil.copy2(file, dest_file)
+                    print(f"Copied to output directory: {dest_file}")
+                    files_moved = True
+                else:
+                    print(f"File already in output directory: {file}")
+
+    if files_moved:
+        print(f"Files moved to '{wsl_output_dir}' directory")
     else:
-        print(f"Warning: Expected output directory '{default_output_dir}' not found")
+        print("No new output files found.")
+
+    print("Contents of the output directory:")
+    for item in os.listdir(wsl_output_dir):
+        print(f" - {item}")
+
+    print("Current working directory:", os.getcwd())
+    print("Contents of current working directory:")
+    for item in os.listdir():
+        print(f" - {item}")
+
+    # Search for any files created or modified in the last 5 minutes
+    print("Searching for recently created or modified files...")
+    current_time = time.time()
+    for root, dirs, files in os.walk('.'):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if os.path.getmtime(file_path) > current_time - 300:  # 300 seconds = 5 minutes
+                print(f"Recent file: {file_path}")
+
+    # Check biolib's default output location
+    biolib_output = os.path.expanduser('~/.biolib/output')
+    if os.path.exists(biolib_output):
+        print(f"Contents of biolib output directory ({biolib_output}):")
+        for item in os.listdir(biolib_output):
+            print(f" - {item}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run DeepTMHMM on a FASTA file')
@@ -112,3 +153,9 @@ if __name__ == "__main__":
 
     setup_temp_dir(new_temp_dir)
     run_deeptmhmm(args.fasta, args.output)
+
+    print("Final check:")
+    print("Current working directory:", os.getcwd())
+    print("Contents of current working directory:")
+    for item in os.listdir():
+        print(f" - {item}")
